@@ -38,6 +38,100 @@ class FixedRuleTests(unittest.TestCase):
 
 
 class ReplayTests(unittest.TestCase):
+    def test_strategic_reveals_are_legal_on_all_charts_and_seed_reproducible(self):
+        with self.assertNoLogs("bot_runner", level="WARNING"):
+            for seats in (3, 4, 5):
+                for chart in "ABCDE":
+                    replay = simulate(
+                        {
+                            "bots": ["SoftTrackingBot"]
+                            + ["ValuationBot"] * (seats - 1),
+                            "botOptions": [{"use_strategic_reveal": True}]
+                            + [{}] * (seats - 1),
+                            "chart": chart,
+                            "seed": 3000,
+                        }
+                    )
+                    self.assertTrue(replay["botOptions"][0]["use_strategic_reveal"])
+                    self.assertEqual(replay["frames"][-1]["event"]["type"], "FINAL")
+                    for previous, current in zip(
+                        replay["frames"], replay["frames"][1:-1]
+                    ):
+                        event = current["event"]
+                        if event["winner"] == 0 and event["reveal"] is not None:
+                            self.assertIn(
+                                event["reveal"], previous["state"]["players"][0]["hand"]
+                            )
+            config = {
+                "bots": ["SoftTrackingBot"] * 3,
+                "chart": "E",
+                "seed": 3000,
+                "botOptions": [{"use_strategic_reveal": True}] * 3,
+            }
+            self.assertEqual(simulate(config), simulate(config))
+
+    def test_cash_fraction_switch_runs_legal_worker_games_at_all_seat_counts(self):
+        with self.assertNoLogs("bot_runner", level="WARNING"):
+            for seats in (3, 4, 5):
+                replay = simulate(
+                    {
+                        "bots": ["SoftTrackingBot"] + ["ValuationBot"] * (seats - 1),
+                        "botOptions": [{"use_cash_fraction_model": True}]
+                        + [{}] * (seats - 1),
+                        "chart": "E",
+                        "seed": 2700,
+                    }
+                )
+                self.assertTrue(replay["botOptions"][0]["use_cash_fraction_model"])
+                self.assertFalse(replay["botOptions"][0]["use_finance_horizon"])
+                self.assertEqual(replay["frames"][-1]["event"]["type"], "FINAL")
+                for previous, current in zip(replay["frames"], replay["frames"][1:-1]):
+                    event = current["event"]
+                    budget = previous["state"]["players"][0]["coins"]
+                    if event["type"] == "LOAN":
+                        budget += event["value"]
+                    self.assertTrue(0 <= event["bids"][0] <= budget)
+
+    def test_soft_default_matches_current_valuation_full_games(self):
+        for seats, chart in ((3, "B"), (4, "E"), (5, "D")):
+            common = {"chart": chart, "seed": 2400}
+            soft = simulate({**common, "bots": ["SoftTrackingBot"] * seats})
+            level2 = simulate({**common, "bots": ["ValuationBot"] * seats})
+            for frame in soft["frames"]:
+                for player in frame["state"]["players"]:
+                    player["bot"] = "ValuationBot"
+            self.assertEqual(soft["frames"], level2["frames"])
+            self.assertTrue(
+                all(not any(options.values()) for options in soft["botOptions"])
+            )
+
+    def test_finance_switch_reaches_the_worker_and_changes_play(self):
+        config = {
+            "bots": ["SoftTrackingBot", "ValuationBot", "ValuationBot"],
+            "chart": "A",
+            "seed": 2400,
+        }
+        off = simulate(config)
+        on_config = {**config, "botOptions": [{"use_finance_horizon": True}, {}, {}]}
+        with self.assertNoLogs("bot_runner", level="WARNING"):
+            on = simulate(on_config)
+        self.assertTrue(on["botOptions"][0]["use_finance_horizon"])
+        self.assertFalse(on["botOptions"][0]["use_bid_evidence"])
+        self.assertNotEqual(on["frames"], off["frames"])
+        self.assertEqual(on, simulate(on_config))
+
+    def test_invalid_feature_switches_are_rejected(self):
+        config = {"bots": ["SoftTrackingBot", "ValuationBot", "ValuationBot"]}
+        for options in (
+            [],
+            {},
+            [{"use_finance_horizon": 1}, {}, {}],
+            [{"unknown": True}, {}, {}],
+            [{}, {"use_finance_horizon": True}, {}],
+        ):
+            with self.assertRaises(ValueError):
+                simulate({**config, "botOptions": options})
+
     def test_replay_all_seat_counts_and_charts(self):
         for seats in (3, 4, 5):
             for chart in VALUE_CHARTS:

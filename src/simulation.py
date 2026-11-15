@@ -10,6 +10,7 @@ from random import Random
 from typing import Any
 
 import custom_bots
+from bot_definitions.soft_tracking_bot import LEVEL3_BOTS, LEVEL3_FEATURES
 from bots import Bot
 from constants import STANDARD_GEMS, GemType
 from decks import VALUE_CHARTS
@@ -50,6 +51,28 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Select 3, 4, or 5 bots")
     if any(not isinstance(name, str) or name not in catalog for name in names):
         raise ValueError("Unknown bot selection")
+    options = config.get("botOptions", [{} for _ in names])
+    if not isinstance(options, list) or len(options) != len(names):
+        raise ValueError("Provide one bot-options object per seat")
+    classes = []
+    normalized_options = []
+    for name, selected in zip(names, options):
+        if (
+            not isinstance(selected, dict)
+            or any(k not in LEVEL3_FEATURES for k in selected)
+            or any(type(v) is not bool for v in selected.values())
+            or (name != "SoftTrackingBot" and selected)
+        ):
+            raise ValueError(
+                "Feature switches require SoftTrackingBot and Boolean values"
+            )
+        flags = tuple(selected.get(feature, False) for feature in LEVEL3_FEATURES)
+        classes.append(
+            LEVEL3_BOTS[flags] if name == "SoftTrackingBot" else catalog[name]
+        )
+        normalized_options.append(
+            dict(zip(LEVEL3_FEATURES, flags)) if name == "SoftTrackingBot" else {}
+        )
     seed = config.get("seed", 42)
     if type(seed) is not int or not 0 <= seed <= 2**32 - 1:
         raise ValueError("Seed must be an integer from 0 to 4294967295")
@@ -58,7 +81,7 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Select chart A, B, C, D, or E")
     with create_game(
         len(names),
-        bots=[catalog[name] for name in names],
+        bots=classes,
         rng=Random(seed),
         bot_seed=seed,
         value_chart=chart,
@@ -159,6 +182,7 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
             "seed": seed,
             "chart": chart.name,
             "chartValues": list(chart.values),
+            "botOptions": normalized_options,
             "missions": [mission_data(m, i) for i, m in enumerate(missions)],
             "frames": frames,
         }

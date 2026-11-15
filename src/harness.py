@@ -3,14 +3,14 @@
 import argparse
 import importlib
 from collections import Counter, deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from random import Random
 from types import TracebackType
 
 from bot_info import build_bot_info
 from bot_runner import BotRunner
-from bots import Bot, GameSummary, RoundResult
+from bots import Bot, BotInfo, GameSummary, RoundResult
 from constants import (
     CARDS_PER_PLAYER,
     COINS_PER_PLAYER,
@@ -159,9 +159,15 @@ def create_game(
 
 
 # Build player-specific information and collect validated bids.
-def _collect_bids(game: GameState) -> list[int]:
+def _collect_bids(
+    game: GameState,
+    before_bid: Callable[[BotInfo], None] | None = None,
+    observer_id: int = 0,
+) -> list[int]:
     # Build every view before invoking any bot: bidding is simultaneous.
     views = [build_bot_info(game, player) for player in game.players]
+    if before_bid is not None:
+        before_bid(views[observer_id])
     return [player.get_bid(info) for player, info in zip(game.players, views)]
 
 
@@ -223,8 +229,20 @@ def _claim_missions(game: GameState, player: Player) -> None:
 
 
 # Resolve a complete auction round.
-def play_round(game: GameState) -> RoundResult:
-    """Resolve one auction and return its result for host-side observers."""
+def play_round(
+    game: GameState,
+    *,
+    before_bid: Callable[[BotInfo], None] | None = None,
+    observer_id: int = 0,
+) -> RoundResult:
+    """Resolve an auction; optionally observe one private view before any bids.
+
+    The host-only observer gets the same immutable snapshot as the chosen seat,
+    never other players' hidden hands. Its return value is ignored. This hook
+    supports shadow forecasts without routing their estimates into actual bots.
+    """
+    if before_bid is not None and not 0 <= observer_id < len(game.players):
+        raise ValueError("Observer must be a valid player ID")
     if not game.auction_gems:
         raise ValueError("All gems have already been auctioned")
     card = game.auction_deck.draw()
@@ -234,7 +252,7 @@ def play_round(game: GameState) -> RoundResult:
     game.round_number += 1
     game.current_auction = card
     game.auction_history.append(card)
-    bids = _collect_bids(game)
+    bids = _collect_bids(game, before_bid, observer_id)
     winner_id = _select_winner(bids, game.previous_winner_id, game.rng)
     winner = game.players[winner_id]
     _apply_auction(game, winner, card, bids[winner_id])

@@ -1,6 +1,8 @@
 const $ = (id) => document.getElementById(id);
 const colors = ["Blue", "Green", "Purple", "Yellow", "Pink"];
 const labels = {
+  SoftTrackingBot: "Soft tracking · informed bids",
+  ValuationBot: "Valuation · expected value",
   FixedRuleBot: "Fixed rule · 20%",
   SmallBidBot: "Small bid · 1 coin",
   Bot: "Zero bid · baseline",
@@ -21,13 +23,28 @@ const escape = (value) =>
       ],
   );
 const botLabel = (name) => labels[name] || name;
+const level3Features = [
+  ["use_bid_evidence", "Hand inference"],
+  ["use_endgame_rules", "Mission endgame rules"],
+  ["use_finance_horizon", "Finance-aware cash planning"],
+  ["use_cash_fraction_model", "Cash-fraction bid model"],
+  ["use_strategic_reveal", "Strategic reveals"],
+];
 function seatFields() {
   const old = [...document.querySelectorAll(".bot-select")].map((s) => s.value);
+  const oldOptions = [...document.querySelectorAll(".seat-field")].map((field) =>
+    Object.fromEntries([...field.querySelectorAll(".feature-switch")].map((el) => [el.dataset.feature, el.checked])),
+  );
   $("seat-fields").innerHTML = Array.from(
     { length: seats },
     (_, i) =>
-      `<div class="seat-field"><label for="bot-${i}"><i class="seat-dot s${i}"></i> Seat ${i + 1}</label><select class="bot-select" id="bot-${i}">${catalog.map((name) => `<option value="${escape(name)}" ${name === (old[i] || ["FixedRuleBot", "SmallBidBot", "FixedRuleBot", "Bot", "SmallBidBot"][i]) ? "selected" : ""}>${escape(botLabel(name))}</option>`).join("")}</select></div>`,
+      `<div class="seat-field"><label for="bot-${i}"><i class="seat-dot s${i}"></i> Seat ${i + 1}</label><select class="bot-select" id="bot-${i}">${catalog.map((name) => `<option value="${escape(name)}" ${name === (old[i] || ["FixedRuleBot", "SmallBidBot", "FixedRuleBot", "Bot", "SmallBidBot"][i]) ? "selected" : ""}>${escape(botLabel(name))}</option>`).join("")}</select><fieldset class="feature-options" hidden><legend>Level 3 extras · off by default</legend>${level3Features.map(([key, label]) => `<label><input type="checkbox" class="feature-switch" data-feature="${key}" ${oldOptions[i]?.[key] ? "checked" : ""}>${label}</label>`).join("")}</fieldset></div>`,
   ).join("");
+  document.querySelectorAll(".bot-select").forEach((select) => {
+    const update = () => { select.parentElement.querySelector(".feature-options").hidden = select.value !== "SoftTrackingBot"; };
+    select.addEventListener("change", update);
+    update();
+  });
 }
 function stop() {
   clearInterval(timer);
@@ -119,7 +136,7 @@ function render() {
   $("players").innerHTML = s.players
     .map(
       (p) =>
-        `<article class="player ${e?.winner === p.id ? "active" : ""} ${final && e.winners.includes(p.id) ? "champion" : ""}"><div class="player-head"><span><i class="seat-dot s${p.id}"></i> SEAT ${p.id + 1}</span><span>${final && e.winners.includes(p.id) ? "WINNER" : e?.winner === p.id ? "LAST WINNER" : ""}</span></div><div class="bot-name">${escape(p.bot)}</div><div class="money">${final ? p.score : p.coins} <small>${final ? "points" : "coins"}</small></div><div class="collection">${p.gems.some(Boolean) ? p.gems.map((count, g) => (count ? `<span class="gem-count">${gem(g)}${count}</span>` : "")).join("") : '<span class="empty">No gems collected yet</span>'}</div><div class="player-meta"><span>${p.missions.length} mission${p.missions.length === 1 ? "" : "s"}</span><span>${p.invested} locked coins</span></div><div class="hand"><span class="hand-label">${p.hand.length ? "HAND" : "REVEALED"}</span>${p.hand.length ? p.hand.map((g) => ($("show-hands").checked ? gem(g) : '<i class="back" title="Hidden information gem"></i>')).join("") : '<span class="empty">All public</span>'}</div>${
+        `<article class="player ${e?.winner === p.id ? "active" : ""} ${final && e.winners.includes(p.id) ? "champion" : ""}"><div class="player-head"><span><i class="seat-dot s${p.id}"></i> SEAT ${p.id + 1}</span><span>${final && e.winners.includes(p.id) ? "WINNER" : e?.winner === p.id ? "LAST WINNER" : ""}</span></div><div class="bot-name">${escape(p.bot)}</div>${p.bot === "SoftTrackingBot" ? `<div class="bot-features">${escape(level3Features.filter(([key]) => replay.botOptions?.[p.id]?.[key]).map(([, label]) => label).join(" · ") || "Level 3 extras off")}</div>` : ""}<div class="money">${final ? p.score : p.coins} <small>${final ? "points" : "coins"}</small></div><div class="collection">${p.gems.some(Boolean) ? p.gems.map((count, g) => (count ? `<span class="gem-count">${gem(g)}${count}</span>` : "")).join("") : '<span class="empty">No gems collected yet</span>'}</div><div class="player-meta"><span>${p.missions.length} mission${p.missions.length === 1 ? "" : "s"}</span><span>${p.invested} locked coins</span></div><div class="hand"><span class="hand-label">${p.hand.length ? "HAND" : "REVEALED"}</span>${p.hand.length ? p.hand.map((g) => ($("show-hands").checked ? gem(g) : '<i class="back" title="Hidden information gem"></i>')).join("") : '<span class="empty">All public</span>'}</div>${
           final
             ? `<div class="breakdown">${Object.entries(p.breakdown)
                 .map(
@@ -183,6 +200,11 @@ $("setup").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         bots: [...document.querySelectorAll(".bot-select")].map((s) => s.value),
+        botOptions: [...document.querySelectorAll(".seat-field")].map((field) =>
+          field.querySelector(".bot-select").value === "SoftTrackingBot"
+            ? Object.fromEntries([...field.querySelectorAll(".feature-switch")].map((el) => [el.dataset.feature, el.checked]))
+            : {},
+        ),
         chart: $("chart").value,
         seed: Number($("seed").value),
       }),

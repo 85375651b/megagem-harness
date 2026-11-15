@@ -139,6 +139,18 @@ label {
 .seat-field {
   margin-bottom: 13px;
 }
+.feature-options {
+  border: 1px solid #d2d8cb;
+  border-radius: 5px;
+  margin: 9px 0 0;
+  padding: 8px 9px 3px;
+  min-width: 0;
+}
+.feature-options[hidden] { display: none; }
+.feature-options legend { font-size: 10px; color: #455b48; padding: 0 4px; }
+.feature-options .feature-switch { margin: 0; accent-color: #183d30; }
+.feature-options label { font-weight: 400; line-height: 1.4; }
+.bot-features { font-size: 10px; color: #61745f; line-height: 1.5; margin-bottom: 8px; }
 .seat-field label {
   display: flex;
   align-items: center;

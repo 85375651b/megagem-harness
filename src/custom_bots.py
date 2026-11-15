@@ -2,5 +2,7 @@
 
 from bot_definitions.fixed_rule_bot import FixedRuleBot
 from bot_definitions.small_bid_bot import SmallBidBot
+from bot_definitions.soft_tracking_bot import SoftTrackingBot
+from bot_definitions.valuation_bot import ValuationBot
 
-__all__ = ["FixedRuleBot", "SmallBidBot"]
+__all__ = ["FixedRuleBot", "SmallBidBot", "ValuationBot", "SoftTrackingBot"]

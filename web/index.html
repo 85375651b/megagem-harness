@@ -68,6 +68,30 @@
         <p class="error" id="error" role="alert"></p>
       </form>
       <details class="strategy" open>
+        <summary>Meet the soft-tracking bot <span>↗</span></summary>
+        <p>
+          Matches the valuation bot at every seat count with all extras off.
+          Select it to switch on hand inference, mission endgame rules,
+          finance-aware cash planning, or a bid model that learns opponents'
+          cash fractions for each auction type. Strategic reveals adapt to the
+          chart: draw attention toward less useful colors on A/C, or try to cool
+          competition for desired colors on B/D. E checks whether the reveal
+          raises or lowers the displayed price. Cash planning uses remaining
+          loans, investments, and treasure auctions to adjust future cash needs.
+        </p>
+        <p>Select “Soft tracking · informed bids” in any seat to try it.</p>
+      </details>
+      <details class="strategy">
+        <summary>Meet the valuation bot <span>↗</span></summary>
+        <p>
+          Prices gems using expected final values and adds mission and denial
+          value. Uses expected-utility bids with all seat counts, balancing win
+          probability, price, and future cash needs. Keeps a cash reserve and
+          weighs investments and loans against future buying power.
+        </p>
+        <p>Select “Valuation · expected value” in any seat to try it.</p>
+      </details>
+      <details class="strategy">
         <summary>Meet the fixed-rule bot <span>↗</span></summary>
         <p>
           20% of cash on treasure, rounded down. Zero on loans and investments.
