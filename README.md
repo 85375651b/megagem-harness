@@ -26,6 +26,8 @@ engine with isolated bot workers and a two-second timeout per callback. The
 browser plays back the resulting snapshots; it does not implement a second game
 engine. The same seed, seating, and bot selection reproduce a game for bots
 using the harness-provided random stream.
+Sampling search also has a wall-clock budget, so its choices can vary with CPU
+load even when the setup seed is the same.
 
 The selector includes `Bot` (zero bids), the existing `SmallBidBot` (one coin on
 all auctions), and all bots exported in `src/custom_bots.py`. Restart the server
@@ -33,6 +35,65 @@ and refresh the page after adding a bot. `PORT` changes the local server port;
 `PYTHON` selects another Python executable. The server binds to loopback only.
 Selecting Soft tracking reveals five per-seat feature checkboxes. All start
 off; enabled features are recorded in the replay and shown on that player's card.
+
+### Level 4: sampling search
+
+Choose **Sampling search · level 4** in any seat. It is a separate `SamplingBot`
+in `src/bot_definitions`, exported by `src/custom_bots.py`. It automatically
+enables the level-3 bid-evidence tracker at weight 0.1. Endgame restrictions,
+finance-aware k, cash-fraction bidding and strategic reveals stay off. The
+unconfigured level-3 bot still matches level 2.
+
+The bot draws unseen gems without replacement into opponents' remaining hands
+and the hidden deck, preserving every public color count and hand/deck capacity.
+Its own hand and auction row stay fixed. It independently shuffles the known
+remaining auction-card multiset. Each world's importance weight is the level-3
+remaining-hand likelihood, `exp(0.1 × evidence)`, applied only to sampled
+opponent hands. This is a weighted belief sample, not access to the real deck.
+
+For every candidate bid, it simulates the rest of the game using current level-2
+policies for **all** players. Each simulated policy receives only its own private
+hand and the normal immutable public snapshot. Actual past bid learning is
+reconstructed separately for each sampled opponent's hand. The real harness
+resolves auctions, tie priority, reveals, missions, investments, loans and final
+scoring. Rollouts run in-process inside the existing isolated bot worker and
+never spawn nested workers.
+
+The action maximizes the importance-weighted mean of the bot's **own final coin
+score**, rather than rollout win rate. Initial candidate bids include the level-2
+bid, zero, and bids near sampled rival thresholds, with at most seven choices.
+Small budgets initially cover every legal bid; cost adaptation may narrow that
+set, always retaining the level-2 action. Search can spend the current reserve
+when a full continuation justifies it. The same sampled worlds and tie randomness
+compare all actions. An incomplete comparison world is discarded for every action.
+
+Search uses up to 16 completed worlds and a default 0.85-second allowance,
+below the hard two-second callback limit. Unix workers also use an interruptible
+timer, disarmed before checkpointing; other environments use cooperative checks.
+A pilot continuation adapts the number of candidates to cost; it never narrows
+actions using the pilot reward. At least two completed worlds are required,
+otherwise the ordinary level-2 bid is used
+and the fallback is recorded. If even computing the baseline exceeds the timer,
+the emergency response is a legal zero bid, recorded separately. Cashless
+non-loan auctions have only one legal bid and skip search. Preparing a table with
+several sampling bots takes longer.
+
+Only repeated pure level-2 computations are memoized for speed; bidding formulas
+and numeric results are unchanged. The [paired benchmark and timing report](experiments/results/sampling_search/report.md)
+compare this option with level 2. Direct callers can configure
+`SamplingBot(decision_seconds=0.85, max_worlds=16, max_candidates=7)`; the viewer
+uses these defaults. Inspect `last_search` or `search_log` for completed-world
+counts, effective sample size, candidate mean scores and fallback reasons.
+
+```sh
+python3 src/harness.py 3 --bots custom_bots:SamplingBot custom_bots:ValuationBot custom_bots:ValuationBot --seed 42 --bot-seed 42
+python3 experiments/benchmark_sampling.py --games 60 --start-seed 3300 --jobs 6 --batch-size 10 --output experiments/results/sampling_search/comparison.json
+```
+
+Limited sample counts, a reduced action set, heuristic bid evidence and the
+assumption of level-2 opponents make this an approximate policy search. The
+benchmark determines its measured performance; no universal superiority is
+assumed.
 
 ### Fixed-rule baseline
 

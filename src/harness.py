@@ -253,6 +253,22 @@ def play_round(
     game.current_auction = card
     game.auction_history.append(card)
     bids = _collect_bids(game, before_bid, observer_id)
+    return resolve_auction(game, bids)
+
+
+def resolve_auction(game: GameState, bids: Sequence[int]) -> RoundResult:
+    """Resolve the already drawn card; shared by real games and sampled rollouts.
+
+    No bidding is performed here. Each bid must already respect the card's
+    legal budget; the real harness validates bot responses before this call.
+    """
+    card = game.current_auction
+    if card is None or len(bids) != len(game.players):
+        raise ValueError("An auction and one bid per player are required")
+    for player, bid in zip(game.players, bids):
+        budget = player.coins + (card.value if card.type is AuctionType.LOAN else 0)
+        if type(bid) is not int or not 0 <= bid <= budget:
+            raise ValueError("An auction bid exceeds its legal budget")
     winner_id = _select_winner(bids, game.previous_winner_id, game.rng)
     winner = game.players[winner_id]
     _apply_auction(game, winner, card, bids[winner_id])

@@ -68,6 +68,18 @@
         <p class="error" id="error" role="alert"></p>
       </form>
       <details class="strategy" open>
+        <summary>Meet the sampling bot <span>↗</span></summary>
+        <p>
+          Samples possible hidden hands and decks, then compares bids by playing
+          out games with valuation bots. Bid history weights the sampled worlds.
+          Search has a time limit; short searches use the valuation policy.
+        </p>
+        <p>
+          Select “Sampling search · level 4”. Preparing a game takes longer;
+          results can vary with available search time.
+        </p>
+      </details>
+      <details class="strategy">
         <summary>Meet the soft-tracking bot <span>↗</span></summary>
         <p>
           Matches the valuation bot at every seat count with all extras off.

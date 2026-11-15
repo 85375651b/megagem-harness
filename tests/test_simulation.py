@@ -38,6 +38,24 @@ class FixedRuleTests(unittest.TestCase):
 
 
 class ReplayTests(unittest.TestCase):
+    def test_sampling_bot_is_selectable_and_finishes_legal_isolated_games(self):
+        with self.assertNoLogs("bot_runner", level="WARNING"):
+            for seats, chart in ((3, "E"), (4, "A"), (5, "B")):
+                replay = simulate(
+                    {
+                        "bots": ["SamplingBot"] + ["ValuationBot"] * (seats - 1),
+                        "chart": chart,
+                        "seed": 3300,
+                    }
+                )
+                self.assertEqual(replay["frames"][-1]["event"]["type"], "FINAL")
+                for previous, current in zip(replay["frames"], replay["frames"][1:-1]):
+                    event = current["event"]
+                    budget = previous["state"]["players"][0]["coins"]
+                    if event["type"] == "LOAN":
+                        budget += event["value"]
+                    self.assertTrue(0 <= event["bids"][0] <= budget)
+
     def test_strategic_reveals_are_legal_on_all_charts_and_seed_reproducible(self):
         with self.assertNoLogs("bot_runner", level="WARNING"):
             for seats in (3, 4, 5):

@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const colors = ["Blue", "Green", "Purple", "Yellow", "Pink"];
 const labels = {
+  SamplingBot: "Sampling search · level 4",
   SoftTrackingBot: "Soft tracking · informed bids",
   ValuationBot: "Valuation · expected value",
   FixedRuleBot: "Fixed rule · 20%",

@@ -80,12 +80,18 @@ def _mission_targets(mission: MissionCard) -> tuple[tuple[int, ...], ...]:
 
 
 def _missing(mission: MissionCard, collection: Mapping[GemType, int]) -> int:
+    return _missing_counts(mission, tuple(collection.get(g, 0) for g in STANDARD_GEMS))
+
+
+@lru_cache(maxsize=8192)
+def _missing_counts(mission: MissionCard, collection: tuple[int, ...]) -> int:
     return min(
-        sum(max(0, n - collection.get(g, 0)) for g, n in zip(STANDARD_GEMS, target))
+        sum(max(0, n - held) for held, n in zip(collection, target))
         for target in _mission_targets(mission)
     )
 
 
+@lru_cache(maxsize=8192)
 def _acquisition_probability(
     needed: int, visible: int, unknown: int, share: float, deck_fraction: float
 ) -> float:
