@@ -7,6 +7,26 @@ provides the browser interface and local server, which launches the Python engin
 See the [callback timing audit](experiments/results/callback_budget/report.md)
 for measured worker timings and L4 cutoff/fallback checks.
 
+## Sprint submissions
+
+Only these two bots are included in `src/custom_bots.py::__all__`:
+
+| Submission | Class / CLI name | Definition |
+| --- | --- | --- |
+| L4 generalist | `custom_bots:SamplingBot` | [sampling_bot.py](src/bot_definitions/sampling_bot.py) |
+| L2 passive-opponent specialist | `custom_bots:ValuationBot` | [valuation_bot.py](src/bot_definitions/valuation_bot.py) |
+
+Both definitions contain module documentation explaining their strategies and
+listing Grace Guo (85375651b) and OpenAI Codex (implementation assistance).
+The L2 specialist is the normal valuation policy used **against** passive
+opponents; `PassiveBidder` is a synthetic test opponent, not that submission.
+
+All other local bots are listed separately in `custom_bots.EXPERIMENTAL_BOTS`.
+They remain available in the browser and through existing explicit CLI imports,
+but are excluded from the submission `__all__`. Internal variants in `experiments`
+and rollout/helper classes are controls, not extra submissions. Add a name to
+the submission list only when intentionally submitting that bot.
+
 ## Browser simulation viewer
 
 Requires Node.js 18+ and Python 3.10+ on your PATH. No third-party Python or
@@ -34,8 +54,9 @@ using the harness-provided random stream.
 Sampling search also has a wall-clock budget, so its choices can vary with CPU
 load even when the setup seed is the same.
 
-The selector includes `Bot` (zero bids), the existing `SmallBidBot` (one coin on
-all auctions), and all bots exported in `src/custom_bots.py`. Restart the server
+The selector includes `Bot` (zero bids), both submission bots, and the local
+opponents in `custom_bots.EXPERIMENTAL_BOTS`, including `SmallBidBot` (one coin
+on all auctions). Restart the server
 and refresh the page after adding a bot. `PORT` changes the local server port;
 `PYTHON` selects another Python executable. The server binds to loopback only.
 Selecting Soft tracking reveals five per-seat feature checkboxes. All start
@@ -104,6 +125,24 @@ L4's former evidence weighting and tracker were removed after the matched
 ablation found no useful advantage. The private `WeightedSamplingReference`
 exists only in `experiments` to reproduce comparisons. Add `--weighted-reference`
 to `benchmark_sampling.py` to reproduce the original weighted-versus-L2 protocol.
+
+### Mixed-opponent tournament
+
+The selector now includes **Random · value-bounded**, **Very aggressive · high
+bids**, and **Very passive · low bids**. They use the active chart and mission
+values, with different spending fractions and cash reserves. These are synthetic
+stress opponents rather than models fitted to human players.
+
+The [mixed-opponent report](experiments/results/mixed_tournament/report.md)
+compares L2, all seven combinations of the inconclusive L3 inference/finance/
+reveal features, and L4 across every chart and seven opponent lineups. It includes
+fresh validation, specialist nominations, complete matrix CSVs and raw games.
+The worst historically harmful features and the default/small/fixed bidders are
+excluded from this tournament. Existing production defaults are unchanged.
+
+Candidate aliases are in `experiments/mixed_policies.py`; the time-bounded runner
+is `experiments/mixed_tournament.py`. Set `--deadline` to an absolute future ISO
+UTC time. The saved protocol documents selection and validation rules.
 
 ### Fixed-rule baseline
 
@@ -527,20 +566,23 @@ class MyBot(Bot):
         self.rounds_seen += 1
 ```
 
-Add its import and public name to `src/custom_bots.py` alongside the existing example:
+For a local test bot, add its import to `src/custom_bots.py` and register it in
+the development catalog, after the existing mapping is defined:
 
 ```python
 from bot_definitions.my_bot import MyBot
-from bot_definitions.small_bid_bot import SmallBidBot
 
-__all__ = ["MyBot", "SmallBidBot"]
+# Leave the two actual submission entries in __all__ unchanged.
+EXPERIMENTAL_BOTS["MyBot"] = MyBot
 ```
 
 Run it with `python3 src/harness.py 3 --bots custom_bots:MyBot`. Multiple implementations
 can be selected independently, such as
 `--bots custom_bots:MyBot custom_bots:SmallBidBot custom_bots:MyBot`.
-Explicit imports make each public bot name easy to find. Keep definitions in their
-own modules; importing them into `src/custom_bots.py` makes them available to the CLI.
+Explicit imports make each bot name easy to find. Keep definitions in their own
+modules; importing them into `src/custom_bots.py` makes them available to the CLI,
+and the development mapping makes them selectable in the viewer. Update
+`__all__` separately only when intentionally changing the submitted team.
 Workers still import each class from its original `bot_definitions` module, which
 also allows checkpoint recovery without any special registration code.
 

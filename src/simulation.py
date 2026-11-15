@@ -22,6 +22,7 @@ def bot_catalog() -> dict[str, type[Bot]]:
     return {
         "Bot": Bot,
         **{name: getattr(custom_bots, name) for name in custom_bots.__all__},
+        **custom_bots.EXPERIMENTAL_BOTS,
     }
 
 

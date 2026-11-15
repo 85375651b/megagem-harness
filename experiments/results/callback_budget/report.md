@@ -1,5 +1,10 @@
 # Python bot language and callback-budget audit
 
+Historical development-catalog audit: the submission API now contains only
+`SamplingBot` and `ValuationBot`. The other bots below remain local development
+controls. The measurements are unchanged; `check_callback_budget.py` follows
+the current submission `__all__` when rerun.
+
 All five public custom bots are Python classes in `src/bot_definitions`, exported
 by `src/custom_bots.py`: FixedRuleBot, SmallBidBot, ValuationBot, SoftTrackingBot
 and SamplingBot. The default zero-bidding `Bot` is also Python (`src/bots.py`).

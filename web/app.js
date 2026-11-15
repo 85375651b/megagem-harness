@@ -1,6 +1,9 @@
 const $ = (id) => document.getElementById(id);
 const colors = ["Blue", "Green", "Purple", "Yellow", "Pink"];
 const labels = {
+  RandomBidder: "Random · value-bounded",
+  AggressiveBidder: "Very aggressive · high bids",
+  PassiveBidder: "Very passive · low bids",
   SamplingBot: "Sampling search · level 4",
   SoftTrackingBot: "Soft tracking · informed bids",
   ValuationBot: "Valuation · expected value",

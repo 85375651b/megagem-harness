@@ -1,5 +1,6 @@
 """Level 4: uniform hidden-world sampling with level-2 continuation policies.
 
+Submission role: L4 generalist, exported as custom_bots:SamplingBot.
 Contributors: Grace Guo (85375651b), OpenAI Codex (implementation assistance).
 
 Sample unseen cards without replacement into opponent hands and the deck, and

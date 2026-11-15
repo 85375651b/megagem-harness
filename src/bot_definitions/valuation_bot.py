@@ -1,5 +1,7 @@
 """A fast, deterministic valuation-and-liquidity baseline for Megagem.
 
+Submission role: L2 passive-opponent specialist, exported as
+custom_bots:ValuationBot. This is the ordinary L2 policy, not PassiveBidder.
 Contributors: Grace Guo (85375651b), OpenAI Codex (implementation assistance).
 
 Gem prices integrate the Value Chart over an exact hypergeometric distribution:
