@@ -223,8 +223,8 @@ def _claim_missions(game: GameState, player: Player) -> None:
 
 
 # Resolve a complete auction round.
-def play_round(game: GameState) -> None:
-    """Resolve one auction, reveal information, replenish gems, and claim missions."""
+def play_round(game: GameState) -> RoundResult:
+    """Resolve one auction and return its result for host-side observers."""
     if not game.auction_gems:
         raise ValueError("All gems have already been auctioned")
     card = game.auction_deck.draw()
@@ -253,6 +253,7 @@ def play_round(game: GameState) -> None:
     # Notify every bot of the completed round.
     for player in game.players:
         player.on_round_end(build_bot_info(game, player), result)
+    return result
 
 
 # Calculate one player's final score from its holdings and the gem values.

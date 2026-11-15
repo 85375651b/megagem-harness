@@ -2,6 +2,59 @@
 
 A standard-library-only simulator for 3–5 players, using Python 3.10 or newer.
 
+## Browser simulation viewer
+
+Requires Node.js 18+ and Python 3.10+ on your PATH. No third-party Python or
+JavaScript runtime dependencies are needed.
+
+```sh
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173**. Select 3–5 seats and a bot for each seat, choose
+chart A–E and a game seed, then click **Start a new game**. Use Play/Pause,
+previous/next, the timeline slider, and playback speed to inspect the game.
+The initial default game is loaded automatically. Setup changes take effect on
+the next new game. The journal records bids, reveals, and mission claims;
+the last frame reveals all hands and shows each player's score breakdown.
+Live market quotes are provisional until that final reveal.
+
+**Peek at hidden hands** is a spectator feature only: bots still receive the
+harness's normal private information snapshots. Games run in the existing Python
+engine with isolated bot workers and a two-second timeout per callback. The
+browser plays back the resulting snapshots; it does not implement a second game
+engine. The same seed, seating, and bot selection reproduce a game for bots
+using the harness-provided random stream.
+
+The selector includes `Bot` (zero bids), the existing `SmallBidBot` (one coin on
+all auctions), and all bots exported in `src/custom_bots.py`. Restart the server
+and refresh the page after adding a bot. `PORT` changes the local server port;
+`PYTHON` selects another Python executable. The server binds to loopback only.
+
+### Fixed-rule baseline
+
+`FixedRuleBot` bids **floor(current coins / 5)** on treasure and zero on loans
+and investments. It reveals the first hidden gem. This deliberately simple
+policy ignores valuation, mission bonuses, and opponents' actions, making it a
+useful baseline for future strategies. With fewer than five coins, its treasure
+bid is zero. All-zero auctions still have a winner, so it can acquire loans and
+investments for free under the ordinary tie rules.
+
+Missions are **automatically claimed without payment or consuming gems** when a
+collection satisfies their requirements. There is no separate mission purchase
+decision in Megagem; this bot uses the standard mission resolution.
+
+```sh
+python3 src/harness.py 4 --bots custom_bots:FixedRuleBot --seed 42 --bot-seed 42
+npm test
+```
+
+`src/simulation.py` exports JSON replays for the viewer. `play_round(game)` now
+returns its immutable `RoundResult`; existing callers may continue ignoring it.
+
+## Command-line simulator
+
 ```sh
 python3 src/harness.py 3 --seed 42 --bot-seed 7
 python3 src/harness.py 5 --chart C --bots custom_bots:SmallBidBot
