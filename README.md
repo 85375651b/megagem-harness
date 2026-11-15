@@ -2,6 +2,11 @@
 
 A standard-library-only simulator for 3–5 players, using Python 3.10 or newer.
 
+All bot strategies are written in Python in `src/bot_definitions`. JavaScript
+provides the browser interface and local server, which launches the Python engine.
+See the [callback timing audit](experiments/results/callback_budget/report.md)
+for measured worker timings and L4 cutoff/fallback checks.
+
 ## Browser simulation viewer
 
 Requires Node.js 18+ and Python 3.10+ on your PATH. No third-party Python or

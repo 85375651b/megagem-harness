@@ -42,6 +42,37 @@ from tests.test_valuation_bot import BLUE, view
 
 class SamplingTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(signal, "setitimer"), "Unix worker alarm")
+    def test_slow_rollouts_are_interrupted_and_return_level_two(self):
+        info = view()
+        expected = ValuationBot().get_bid(info)
+        for completed in (0, 1):
+            with self.subTest(completed_worlds=completed):
+                bot = SamplingBot(decision_seconds=0.2, max_worlds=2, max_candidates=2)
+                calls = 0
+
+                def slow_continuation(*args, **kwargs):
+                    nonlocal calls
+                    calls += 1
+                    # Pilot + one other candidate complete the first world.
+                    if completed and calls <= 2:
+                        return (10, 0, 0, 0)
+                    sleep(10)
+                    raise AssertionError("Search did not interrupt a slow rollout")
+
+                started = perf_counter()
+                with patch(
+                    "bot_definitions.sampling_bot.finish_rollout",
+                    side_effect=slow_continuation,
+                ) as rollout:
+                    self.assertEqual(bot.get_bid(info), expected)
+                self.assertTrue(rollout.called)
+                self.assertLess(perf_counter() - started, 2.0)
+                self.assertEqual(bot.last_search["worlds"], completed)
+                self.assertTrue(bot.last_search["baseline_ready"])
+                self.assertIsNotNone(bot.last_search["fallback"])
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "Unix worker alarm")
     def test_deadline_interrupts_noncooperative_work_and_restores_alarm(self):
         previous = signal.getsignal(signal.SIGALRM)
         with self.assertRaises(RolloutDeadline):
