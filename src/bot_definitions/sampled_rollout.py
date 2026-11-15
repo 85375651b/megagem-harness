@@ -2,7 +2,7 @@
 
 Contributors: Grace Guo (85375651b), OpenAI Codex (implementation assistance).
 
-Worlds use ONLY BotInfo and the tracker's remaining-hand likelihood tables.
+Worlds use ONLY BotInfo, sampling the conditional prior uniformly.
 Each rollout player gets its own BotInfo through the real snapshot builder;
 sampled truth is never passed to its bidding policy. The real harness resolves
 auctions, reveals, missions and terminal scores. No nested workers are spawned.
@@ -13,7 +13,6 @@ from collections import Counter, deque
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from math import isfinite
 from random import Random
 from threading import current_thread, main_thread
 from time import perf_counter
@@ -31,7 +30,6 @@ from lib import AuctionCard, Deck
 from player import Player
 
 History = Sequence[tuple[BotInfo, RoundResult]]
-Likelihoods = Mapping[int, Mapping[GemType, Sequence[float]]]
 
 
 class RolloutDeadline(Exception):
@@ -130,18 +128,13 @@ class SampledWorld:
     hands: tuple[tuple[GemType, ...], ...]
     gem_deck: tuple[GemType, ...]
     auction_deck: tuple[AuctionCard, ...]
-    log_weight: float
     tie_seed: int
 
 
 def sample_world(
     info: BotInfo,
-    likelihoods: Likelihoods,
-    evidence_weight: float,
     rng: Random,
 ) -> SampledWorld:
-    if not isfinite(evidence_weight) or not 0 <= evidence_weight <= 1:
-        raise ValueError("Evidence weight must be finite and between zero and one")
     known_unknown = Counter(GEM_CARDS)
     known_unknown.subtract(info.value_display)
     known_unknown.subtract(info.self_player.hidden_gems)
@@ -158,14 +151,10 @@ def sample_world(
     hands: list[tuple[GemType, ...]] = [()] * info.num_players
     hands[info.self_player.id] = info.self_player.hidden_gems
     offset = 0
-    log_weight = 0.0
     for player in info.other_players:
         hand = tuple(unknown[offset : offset + player.hidden_gem_count])
         offset += player.hidden_gem_count
         hands[player.id] = hand
-        counts = Counter(hand)
-        for gem, logs in likelihoods.get(player.id, {}).items():
-            log_weight += evidence_weight * logs[counts[gem]]
     auctions = [
         card for card, n in info.auction_cards_remaining.items() for _ in range(n)
     ]
@@ -176,7 +165,6 @@ def sample_world(
         tuple(hands),
         tuple(unknown[offset:]),
         tuple(auctions),
-        log_weight,
         rng.getrandbits(64),
     )
 

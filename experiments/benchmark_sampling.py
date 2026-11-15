@@ -18,6 +18,7 @@ from bot_definitions.sampling_bot import SamplingBot  # noqa: E402
 from bot_definitions.valuation_bot import ValuationBot  # noqa: E402
 from bots import BotInfo, GameSummary  # noqa: E402
 from experiments.ablate_level3 import CallbackErrors, paired_ci, run_variant, summarize  # noqa: E402
+from experiments.weighted_sampling_reference import WeightedSamplingReference  # noqa: E402
 
 
 class _MeasuredSamplingBot(SamplingBot):
@@ -33,7 +34,7 @@ class _MeasuredSamplingBot(SamplingBot):
                     d["seconds"],
                     d["worlds"],
                     d["rollouts"],
-                    d.get("effective_worlds", 0),
+                    d.get("effective_worlds", d["worlds"]),
                     d["fallback"],
                 ]
                 for d in self.search_log
@@ -53,12 +54,23 @@ class _MeasuredSamplingBot(SamplingBot):
 _MeasuredSamplingBot.__module__ = "experiments.benchmark_sampling"
 
 
-def run(name: str, seats: int, start: int, count: int) -> dict[str, Any]:
+class _MeasuredWeightedSamplingBot(_MeasuredSamplingBot, WeightedSamplingReference):
+    """Private historical control, available only through an explicit CLI flag."""
+
+
+_MeasuredWeightedSamplingBot.__module__ = "experiments.benchmark_sampling"
+
+
+def run(
+    name: str, seats: int, start: int, count: int, weighted: bool = False
+) -> dict[str, Any]:
     errors = CallbackErrors()
     logger = logging.getLogger("bot_runner")
     logger.addHandler(errors)
     try:
         cls = _MeasuredSamplingBot if name == "sampling" else ValuationBot
+        if name == "sampling" and weighted:
+            cls = _MeasuredWeightedSamplingBot
         result = run_variant(
             name,
             range(start, start + count),
@@ -83,6 +95,11 @@ def main() -> None:
     )
     parser.add_argument("--jobs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=10)
+    parser.add_argument(
+        "--weighted-reference",
+        action="store_true",
+        help="Reproduce the original weighted L4 control instead of current uniform L4",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.games < 2 or args.start_seed < 0 or args.jobs < 1 or args.batch_size < 1:
@@ -109,6 +126,7 @@ def main() -> None:
                 n,
                 args.start_seed + offset,
                 min(args.batch_size, args.games - offset),
+                args.weighted_reference,
             ): (n, name, offset)
             for n in counts
             for name in ("level2", "sampling")
@@ -174,15 +192,19 @@ def main() -> None:
         "batch_size": args.batch_size,
         "parallel_jobs": args.jobs,
         "opponents": "all other seats current ValuationBot",
-        "objective": "importance-weighted mean own final coin score",
+        "objective": (
+            "importance-weighted mean own final coin score"
+            if args.weighted_reference
+            else "uniform mean own final coin score"
+        ),
         "search": {
             "seconds": 0.85,
             "max_worlds": 16,
             "max_candidates": 7,
             "min_worlds": 2,
-            "evidence_weight": 0.1,
+            "evidence_weight": 0.1 if args.weighted_reference else 0.0,
         },
-        "tracker_enabled": True,
+        "tracker_enabled": args.weighted_reference,
         "other_level3_experiments_enabled": False,
         "matching": "same deal seed; chart ABCDE[seed%5]; candidate seat=(-seed)%seats",
         "win_counting": "fractional tie credit for the single candidate",

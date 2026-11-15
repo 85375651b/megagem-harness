@@ -22,12 +22,17 @@ from bot_definitions.sampled_rollout import (
     sample_world,
     world_game,
 )
-from bot_definitions.sampling_bot import SamplingBot, weighted_means
-from bot_definitions.soft_tracking_bot import infer_locations
+from bot_definitions.sampling_bot import SamplingBot, mean_scores
+from bot_definitions.soft_tracking_bot import SoftTrackingBot, infer_locations
 from bot_definitions.valuation_bot import ValuationBot
 from bot_info import build_bot_info
 from constants import STANDARD_GEMS, AuctionType
 from decks import GEM_CARDS, VALUE_CHARTS
+from experiments.weighted_sampling_reference import (
+    WeightedSamplingReference,
+    weighted_means,
+    world_log_weight,
+)
 from harness import create_game, finish_game, play_round, resolve_auction
 from immutable import FrozenMap
 from simulation import bot_catalog
@@ -60,16 +65,18 @@ class SamplingTests(unittest.TestCase):
             BLUE
         ]
         rng = Random(17)
-        worlds = [sample_world(info, logs, 0.4, rng) for _ in range(5000)]
+        worlds = [sample_world(info, rng) for _ in range(5000)]
         counts = [[world.hands[1].count(BLUE)] for world in worlds]
-        actual, _ = weighted_means([world.log_weight for world in worlds], counts)
+        actual, _ = weighted_means(
+            [world_log_weight(info, world, logs, 0.4) for world in worlds], counts
+        )
         self.assertAlmostEqual(actual[0], exact, delta=0.05)
 
     def test_worlds_preserve_every_public_fact_and_every_location_capacity(self):
         info = view()
         rng = Random(7)
         for _ in range(100):
-            world = sample_world(info, {}, 0.1, rng)
+            world = sample_world(info, rng)
             self.assertEqual(
                 world.hands[info.self_player.id], info.self_player.hidden_gems
             )
@@ -91,30 +98,35 @@ class SamplingTests(unittest.TestCase):
                 all_cards.update(player.won_gems)
             self.assertEqual(all_cards, Counter(GEM_CARDS))
 
-    def test_world_weights_use_only_remaining_opponent_hands(self):
+    def test_uniform_prior_and_private_weighted_control(self):
         info = view()
         logs = {
             p.id: {g: [n / 3 for n in range(7)] for g in STANDARD_GEMS}
             for p in info.other_players
         }
-        first = sample_world(info, logs, 0.1, Random(3))
+        world = sample_world(info, Random(3))
+        self.assertFalse(hasattr(world, "log_weight"))
         self.assertAlmostEqual(
-            first.log_weight,
+            world_log_weight(info, world, logs, 0.1),
             0.1 * sum(p.hidden_gem_count for p in info.other_players) / 3,
         )
-        prior = sample_world(info, logs, 0, Random(3))
-        self.assertEqual(prior.hands, first.hands)
-        self.assertEqual(prior.gem_deck, first.gem_deck)
-        self.assertEqual(prior.log_weight, 0)
+        self.assertEqual(world_log_weight(info, world, logs, 0), 0)
         inconsistent = replace(
             info, unknown_gems=FrozenMap({g: 5 for g in STANDARD_GEMS})
         )
         with self.assertRaises(ValueError):
-            sample_world(inconsistent, {}, 0.1, Random(1))
+            sample_world(inconsistent, Random(1))
+        exact = infer_locations(info, {}, evidence_weight=0).expected_counts[1][BLUE]
+        rng = Random(71)
+        average = (
+            sum(sample_world(info, rng).hands[1].count(BLUE) for _ in range(4000))
+            / 4000
+        )
+        self.assertAlmostEqual(average, exact, delta=0.05)
 
     def test_reframed_views_expose_only_each_policy_own_private_hand(self):
         info = view()
-        world = sample_world(info, {}, 0.1, Random(4))
+        world = sample_world(info, Random(4))
         for player_id in range(info.num_players):
             frame = reframe(info, player_id, world.hands[player_id])
             self.assertEqual(frame.self_player.hidden_gems, world.hands[player_id])
@@ -129,7 +141,7 @@ class SamplingTests(unittest.TestCase):
 
     def test_no_nested_workers_and_clones_do_not_mutate_root_or_other_actions(self):
         info = view()
-        world = sample_world(info, {}, 0.1, Random(4))
+        world = sample_world(info, Random(4))
         with patch(
             "bot_runner.BotRunner.__init__", side_effect=AssertionError("nested worker")
         ):
@@ -162,7 +174,6 @@ class SamplingTests(unittest.TestCase):
                                 tuple(game.gem_deck._cards),
                                 tuple(game.auction_deck._cards),
                                 0,
-                                0,
                             )
                             root = world_game(info, world, [{}] * seats, float("inf"))
                             root.rng.setstate(game.rng.getstate())
@@ -178,7 +189,7 @@ class SamplingTests(unittest.TestCase):
 
     def test_history_replay_reconstructs_each_world_level_two_learning(self):
         info = view()
-        world = sample_world(info, {}, 0.1, Random(5))
+        world = sample_world(info, Random(5))
         game = world_game(info, world, [{}] * 4, float("inf"))
         history = []
         for _ in range(5):
@@ -197,7 +208,6 @@ class SamplingTests(unittest.TestCase):
                 tuple(tuple(p.hidden_gem_hand) for p in game.players),
                 tuple(game.gem_deck._cards),
                 tuple(game.auction_deck._cards),
-                0,
                 0,
             )
             for player in game.players:
@@ -237,7 +247,7 @@ class SamplingTests(unittest.TestCase):
                 side_effect=[(10, 0, 0, 0), (9, 0, 0, 0), RolloutDeadline()],
             ),
             patch(
-                "bot_definitions.sampling_bot.weighted_means",
+                "bot_definitions.sampling_bot.mean_scores",
                 side_effect=AssertionError("incomplete world was used"),
             ),
         ):
@@ -247,7 +257,7 @@ class SamplingTests(unittest.TestCase):
 
     def test_terminal_search_uses_exact_final_coin_score_and_tie_priority(self):
         info = view()
-        world = sample_world(info, {}, 0.1, Random(1))
+        world = sample_world(info, Random(1))
         game = world_game(info, world, [{}] * 4, float("inf"))
         while True:
             if (
@@ -276,29 +286,77 @@ class SamplingTests(unittest.TestCase):
         self.assertEqual(bot.get_bid(root), 1)
         self.assertEqual(bot.last_search["worlds"], 4)
 
-    def test_tracker_flags_state_and_history_survive_restart_and_reset(self):
+    def test_uniform_state_and_history_survive_restart_without_a_tracker(self):
         bot = SamplingBot(decision_seconds=0, max_worlds=4)
-        self.assertTrue(bot.use_bid_evidence)
-        self.assertFalse(
-            bot.use_endgame_rules
-            or bot.use_finance_horizon
-            or bot.use_cash_fraction_model
-            or bot.use_strategic_reveal
-        )
+        self.assertNotIsInstance(bot, SoftTrackingBot)
         info = view()
-        bot.get_bid(info)
-        after, result = after_round(info, {0: 0, 1: 9, 2: 3, 3: 0})
-        bot.on_round_end(after, result)
-        self.assertTrue(bot.likelihoods)
+        with patch(
+            "bot_definitions.soft_tracking_bot.infer_locations",
+            side_effect=AssertionError("L4 invoked hidden-hand inference"),
+        ):
+            bot.get_bid(info)
+            after, result = after_round(info, {0: 0, 1: 9, 2: 3, 3: 0})
+            bot.on_round_end(after, result)
+        for name in ("tracker", "likelihoods", "evidence_weight"):
+            self.assertNotIn(name, vars(bot))
+        self.assertEqual(bot.choose_hidden_gem(info, result.bids), 0)
         clone = SamplingBot.__new__(SamplingBot)
         clone.load_state(pickle.loads(pickle.dumps(bot.save_state())))
         self.assertEqual(clone.history, bot.history)
-        self.assertEqual(clone.likelihoods, bot.likelihoods)
+        self.assertEqual(clone.baseline.bid_rates, bot.baseline.bid_rates)
         clone.on_game_start()
         self.assertEqual(clone.history, [])
         self.assertEqual(clone.search_log, [])
         self.assertEqual(clone.max_worlds, 4)
         self.assertIn("SamplingBot", bot_catalog())
+        self.assertNotIn("WeightedSamplingReference", bot_catalog())
+
+    def test_uniform_means_optimize_own_score_and_require_equal_batches(self):
+        self.assertEqual(mean_scores([[100, 0], [0, 60]]), [50, 30])
+        for invalid in ([], [[]], [[1, 2], [3]]):
+            with self.assertRaises(ValueError):
+                mean_scores(invalid)
+
+    def test_simplified_uniform_matches_zero_weight_control_on_fixed_worlds(self):
+        info = view()
+        world = sample_world(info, Random(5))
+        game = world_game(info, world, [{}] * 4, float("inf"))
+        kwargs = dict(decision_seconds=1.35, max_worlds=2, max_candidates=2)
+        uniform = SamplingBot(**kwargs)
+        reference = WeightedSamplingReference(**kwargs, evidence_weight=0)
+        for round_index in range(8):
+            before = build_bot_info(game, game.players[0])
+            with patch(
+                "bot_definitions.sampling_bot.getrandbits",
+                return_value=71 + round_index,
+            ):
+                expected = reference.get_bid(before)
+                actual = uniform.get_bid(before)
+            self.assertEqual(actual, expected)
+            self.assertIsNone(uniform.last_search["fallback"])
+            self.assertIsNone(reference.last_search["fallback"])
+            self.assertEqual(
+                uniform.last_search["worlds"], reference.last_search["worlds"]
+            )
+            if uniform.last_search["worlds"]:
+                self.assertEqual(uniform.last_search["worlds"], 2)
+                self.assertEqual(
+                    uniform.last_search["mean_final_scores"],
+                    reference.last_search["mean_final_scores"],
+                )
+            bids = root_bids(game)
+            bids[0] = actual
+            result = resolve_auction(game, bids)
+            after = build_bot_info(game, game.players[0])
+            uniform.on_round_end(after, result)
+            reference.on_round_end(after, result)
+            self.assertEqual(uniform.history, reference.history)
+            self.assertEqual(uniform.baseline.bid_rates, reference.baseline.bid_rates)
+            if not game.auction_gems:
+                break
+            game.current_auction = game.auction_deck.draw()
+            game.auction_history.append(game.current_auction)
+            game.round_number += 1
 
 
 if __name__ == "__main__":

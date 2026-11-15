@@ -1,5 +1,10 @@
 # Level 4: weighted sampling search
 
+Historical results: current public L4 now uses uniform weights and has no
+level-3 tracker, following the [world-weight ablation](../world_weights/report.md).
+The results below describe the previous weighted policy. Reproduce that control
+with `benchmark_sampling.py --weighted-reference`; the default runs current L4.
+
 `SamplingBot` is a separate browser option, **Sampling search · level 4**. Current
 `ValuationBot` and the unconfigured level-3 policy retain their decisions. This
 experiment evaluates a bounded search; it does not assume search always wins.
@@ -122,7 +127,7 @@ bounded policy search, not full game-tree search or a guarantee of optimal play.
 npm install
 npm run dev
 # Select Sampling search · level 4 in any seat.
-python3 experiments/benchmark_sampling.py --games 60 --start-seed 3300 --jobs 6 --batch-size 10 --output experiments/results/sampling_search/comparison.json
+python3 experiments/benchmark_sampling.py --weighted-reference --games 60 --start-seed 3300 --jobs 6 --batch-size 10 --output experiments/results/sampling_search/comparison.json
 npm test
 ```
 

@@ -40,5 +40,7 @@
   "excluded_runs": [
     "invalid_cooperative_deadline",
     "interrupted_process"
-  ]
+  ],
+  "historical": true,
+  "superseded_by": "../world_weights/decision.json"
 }

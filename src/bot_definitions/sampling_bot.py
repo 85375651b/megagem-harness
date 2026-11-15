@@ -1,20 +1,20 @@
-"""Level 4: bounded, weighted determinization with level-2 continuation policies.
+"""Level 4: uniform hidden-world sampling with level-2 continuation policies.
 
 Contributors: Grace Guo (85375651b), OpenAI Codex (implementation assistance).
 
 Sample unseen cards without replacement into opponent hands and the deck, and
-shuffle only the publicly known remaining auction-card multiset. A world's
-importance weight is exp(evidence_weight * level-3 remaining-hand log evidence).
-Compare the SAME worlds/randomness for all candidate bids and maximize weighted
-mean OWN final coin score, not the number of rollout wins. Every simulated
-player uses current level 2 with its own private view and reconstructed learning
-history. All non-inference level-3 experiments stay off; actual reveals are the
-level-2 first-card rule. Candidate and time limits make this an approximate
-search, with an explicit level-2 fallback if fewer than two worlds finish.
+shuffle only the publicly known remaining auction-card multiset. Compare the
+SAME worlds/randomness for all candidate bids and maximize mean OWN final coin
+score, not rollout wins. Every simulated player uses current level 2 with its
+own private view and reconstructed public-bid learning. No level-3 hidden-hand
+inference or evidence weighting is used. Actual reveals follow level 2's first
+card rule. Candidate/time limits make search approximate, with a level-2 fallback
+if fewer than two complete comparison worlds finish.
 """
 
 from collections import Counter
-from math import exp, isfinite
+from collections.abc import Mapping
+from math import isfinite
 from random import Random, getrandbits
 from time import perf_counter
 
@@ -30,42 +30,30 @@ from bot_definitions.sampled_rollout import (
     sample_world,
     world_game,
 )
-from bot_definitions.soft_tracking_bot import SoftTrackingBot
 from bot_definitions.valuation_bot import ValuationBot
-from bots import BotInfo, RoundResult
+from bots import Bot, BotInfo, GameSummary, RoundResult
 from constants import STANDARD_GEMS
 from harness import GameState
 
 
-def weighted_means(
-    log_weights: list[float],
-    outcomes: list[list[int]],
-) -> tuple[list[float], float]:
-    """Self-normalized importance means and effective sample size, stably scaled."""
-    if not log_weights or len(log_weights) != len(outcomes):
-        raise ValueError("One nonempty outcome vector is required per world")
+def mean_scores(outcomes: list[list[int]]) -> list[float]:
+    """Average each action's final score over the same complete world samples."""
+    if not outcomes or not outcomes[0]:
+        raise ValueError("Nonempty outcome vectors are required")
     width = len(outcomes[0])
-    if not width or any(len(row) != width for row in outcomes):
+    if any(len(row) != width for row in outcomes):
         raise ValueError("Every world must evaluate the same candidate set")
-    maximum = max(log_weights)
-    weights = [exp(log_weight - maximum) for log_weight in log_weights]
-    total = sum(weights)
-    means = [
-        sum(w * row[i] for w, row in zip(weights, outcomes)) / total
-        for i in range(width)
-    ]
-    effective = total**2 / sum(w * w for w in weights)
-    return means, effective
+    return [sum(row[i] for row in outcomes) / len(outcomes) for i in range(width)]
 
 
-class SamplingBot(SoftTrackingBot):
-    """A separate public level-4 bot; only the level-3 hand tracker is required."""
+class SamplingBot(Bot):
+    """Separate public level 4, using the conditional prior and equal weights."""
 
-    use_bid_evidence = True
-    use_endgame_rules = False
-    use_finance_horizon = False
-    use_cash_fraction_model = False
-    use_strategic_reveal = False
+    def _sample_world(self, info: BotInfo, rng: Random) -> SampledWorld:
+        return sample_world(info, rng)
+
+    def _aggregate_worlds(self, outcomes: list[list[int]]) -> list[float]:
+        return mean_scores(outcomes)
 
     def __init__(
         self,
@@ -73,7 +61,6 @@ class SamplingBot(SoftTrackingBot):
         decision_seconds: float = 0.85,
         max_worlds: int = 16,
         max_candidates: int = 7,
-        evidence_weight: float = 0.1,
     ) -> None:
         if not isfinite(decision_seconds) or not 0 <= decision_seconds <= 1.35:
             raise ValueError("Search allowance must be between zero and 1.35 seconds")
@@ -84,30 +71,25 @@ class SamplingBot(SoftTrackingBot):
         self.decision_seconds = decision_seconds
         self.max_worlds = max_worlds
         self.max_candidates = max_candidates
-        super().__init__(
-            use_bid_evidence=True,
-            evidence_weight=evidence_weight,
-            use_endgame_rules=False,
-            use_finance_horizon=False,
-            use_cash_fraction_model=False,
-            use_strategic_reveal=False,
-            use_bid_model=True,
-            use_cash_limits=True,
-        )
+        self.on_game_start()
 
     def on_game_start(self) -> None:
-        super().on_game_start()
         self.baseline = ValuationBot()
         self.history: list[tuple[BotInfo, RoundResult]] = []
         self.search_log: list[dict[str, object]] = []
         self.last_search: dict[str, object] = {}
 
     def on_round_end(self, info: BotInfo, result: RoundResult) -> None:
-        before = self._pending
+        before = self.baseline._pending
         self.baseline.on_round_end(info, result)
-        super().on_round_end(info, result)
         if before is not None and before.round_number == info.round_number:
             self.history.append((before, result))
+
+    def choose_hidden_gem(self, info: BotInfo, bids: Mapping[int, int]) -> int:
+        return self.baseline.choose_hidden_gem(info, bids)
+
+    def on_game_end(self, info: BotInfo, result: GameSummary) -> None:
+        self.baseline.on_game_end(info, result)
 
     def _prepare(
         self,
@@ -171,7 +153,6 @@ class SamplingBot(SoftTrackingBot):
 
     def get_bid(self, info: BotInfo) -> int:
         started = perf_counter()
-        self.observe_auction(info)
         # Preserve real pre-bid memory even if the baseline computation itself
         # is interrupted. Its on_round_end still learns this actual auction.
         self.baseline._pending = info
@@ -237,7 +218,7 @@ class SamplingBot(SoftTrackingBot):
         cache: dict[tuple[int, tuple[int, ...]], dict[int, float]] = {}
         try:
             for _ in range(min(4, self.max_worlds)):
-                world = sample_world(info, self.likelihoods, self.evidence_weight, rng)
+                world = self._sample_world(info, rng)
                 prepared.append(self._prepare(info, world, deadline, cache))
                 worlds.append(world)
         except RolloutDeadline:
@@ -276,7 +257,6 @@ class SamplingBot(SoftTrackingBot):
         diagnostics["pilot_seconds"] = pilot_seconds
         diagnostics["candidates"] = candidates
         outcomes: list[list[int]] = []
-        weights: list[float] = []
         last_batch = 0.0
         for index in range(self.max_worlds):
             if perf_counter() + last_batch * 1.15 >= deadline:
@@ -284,9 +264,7 @@ class SamplingBot(SoftTrackingBot):
             batch_start = perf_counter()
             try:
                 if index >= len(prepared):
-                    world = sample_world(
-                        info, self.likelihoods, self.evidence_weight, rng
-                    )
+                    world = self._sample_world(info, rng)
                     game, bids = self._prepare(info, world, deadline, cache)
                 else:
                     world = worlds[index]
@@ -304,17 +282,15 @@ class SamplingBot(SoftTrackingBot):
                 diagnostics["abandoned_worlds"] = 1
                 break
             outcomes.append(scores)
-            weights.append(world.log_weight)
             last_batch = perf_counter() - batch_start
         diagnostics["worlds"] = len(outcomes)
         diagnostics["rollouts"] = len(outcomes) * len(candidates)
         if len(outcomes) < 2:
             diagnostics["fallback"] = "fewer_than_two_complete_worlds"
             return baseline
-        means, effective = weighted_means(weights, outcomes)
+        means = self._aggregate_worlds(outcomes)
         best = max(range(len(candidates)), key=lambda i: (means[i], -candidates[i]))
         diagnostics["mean_final_scores"] = dict(zip(candidates, means))
-        diagnostics["effective_worlds"] = effective
         diagnostics["chosen_bid"] = candidates[best]
         return candidates[best]
 
